@@ -1,12 +1,13 @@
 # dadosgovcnpj
 
-Pipeline em PySpark para montar uma base local do CNPJ focada no Espirito Santo, enriquecida com tabelas auxiliares oficiais e exportada em CSV unico para uso no Power BI.
+Pipeline em PySpark para montar uma base local do CNPJ focada no Espirito Santo, enriquecida com tabelas auxiliares oficiais, persistida em parquet para reuso local e exportada em CSV unico para uso no Power BI.
 
 ## O que o projeto faz
 
 - descobre automaticamente a versao mensal mais recente da base aberta do CNPJ na Receita Federal
 - baixa apenas os arquivos necessarios para o pipeline
 - extrai e valida os arquivos baixados
+- materializa uma camada local em parquet para reprocessamentos futuros
 - filtra os estabelecimentos do Espirito Santo
 - junta dados de empresa, estabelecimento, CNAE, natureza juridica, municipio e opcao por Simples/MEI
 - enriquece com a base aberta da JUCEES
@@ -117,6 +118,12 @@ python3 main.py extract --state ES
 python3 main.py validate --state ES
 ```
 
+### Materializar a camada parquet
+
+```bash
+python3 main.py materialize-parquet --state ES
+```
+
 ### Construir a base final
 
 ```bash
@@ -162,6 +169,11 @@ Os arquivos finais ficam em `data/output/`.
 - `base_cnpj_es_enriquecida.csv`
 - `socios_es.csv` quando `--include-socios` for usado
 
+A camada reutilizavel em parquet fica em `data/parquet/`, separada por modo:
+
+- `data/parquet/full/<release>/...`
+- `data/parquet/test/<release>/...`
+
 ## Como o pipeline funciona
 
 ### `discover-release`
@@ -185,13 +197,16 @@ Baixa:
 
 Extrai os zips para `data/extracted/`.
 
+### `materialize-parquet`
+
+Grava datasets locais em parquet a partir dos arquivos extraidos e da base da JUCEES. Depois disso, as etapas `validate`, `build-final` e `all` passam a reutilizar a camada parquet sem precisar baixar tudo novamente.
+
 ### `validate`
 
 Verifica:
 
-- se os arquivos esperados existem
-- se os zips estao integros
-- se os CSVs principais conseguem ser lidos pelo Spark
+- se os datasets parquet esperados existem
+- se os dados principais conseguem ser lidos pelo Spark
 - se o filtro do estado alvo retorna registros
 
 ### `build-final`
@@ -209,7 +224,7 @@ Monta a base final do ES com:
 
 ### `cleanup`
 
-Remove `data/raw/` e `data/extracted/`, preservando apenas `data/output/`.
+Remove `data/raw/`, `data/extracted/` e `data/tmp/`, preservando `data/parquet/` e `data/output/`.
 
 ## Observacoes importantes
 
@@ -219,6 +234,7 @@ Remove `data/raw/` e `data/extracted/`, preservando apenas `data/output/`.
 - Para a primeira execucao, `--test-mode` reduz o volume e baixa apenas 1 arquivo de Empresas e 1 de Estabelecimentos, mantendo os arquivos auxiliares.
 - O pipeline remove arquivos `.zip` antigos antes de um novo download e tambem apaga os `.zip` apos a extracao bem-sucedida.
 - Na execucao `all`, o projeto inclui socios por padrao e enriquece o CSV principal com agregados de socios.
+- Depois da primeira materializacao em parquet, o pipeline pode reprocessar a base sem depender novamente dos arquivos gigantes da camada `raw`.
 
 ## Comando recomendado em maquina Linux nova
 
