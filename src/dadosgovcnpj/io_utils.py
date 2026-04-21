@@ -13,6 +13,14 @@ from dadosgovcnpj.config import JUCEES_CSV_URL, PipelineConfig, RECEITA_INDEX_UR
 
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+}
 
 
 def configure_logging() -> None:
@@ -23,7 +31,7 @@ def configure_logging() -> None:
 
 
 def fetch_text(url: str, timeout: int = 120) -> str:
-    response = requests.get(url, timeout=timeout)
+    response = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
     response.raise_for_status()
     return response.text
 
@@ -79,7 +87,7 @@ def select_files(remote_files: list[str], include_socios: bool) -> list[str]:
 
 def download_file(url: str, destination: Path) -> None:
     LOGGER.info("Baixando %s", url)
-    with requests.get(url, stream=True, timeout=120) as response:
+    with requests.get(url, headers=DEFAULT_HEADERS, stream=True, timeout=120) as response:
         response.raise_for_status()
         with destination.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
