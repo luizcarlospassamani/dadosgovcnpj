@@ -95,6 +95,20 @@ def _format_phone(ddd_column: str, number_column: str) -> F.Column:
     )
 
 
+def _remove_tree(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_dir():
+        for nested_path in sorted(path.rglob("*"), reverse=True):
+            if nested_path.is_file():
+                nested_path.unlink(missing_ok=True)
+            elif nested_path.is_dir():
+                nested_path.rmdir()
+        path.rmdir()
+    else:
+        path.unlink(missing_ok=True)
+
+
 def run_discover_release(config: PipelineConfig) -> None:
     release = discover_latest_release(config)
     persist_release(config, release)
@@ -336,9 +350,7 @@ def build_socios_dataset(spark: SparkSession, config: PipelineConfig, es_cnpjs: 
 def write_single_csv(df: DataFrame, target_file: Path, tmp_dir: Path) -> None:
     temp_output = tmp_dir / f"{target_file.stem}_tmp"
     if temp_output.exists():
-        for path in temp_output.iterdir():
-            path.unlink()
-        temp_output.rmdir()
+        _remove_tree(temp_output)
 
     (
         df.coalesce(1)
@@ -353,7 +365,7 @@ def write_single_csv(df: DataFrame, target_file: Path, tmp_dir: Path) -> None:
         raise RuntimeError(f"Nao foi encontrado arquivo CSV em {temp_output}.")
     part_files[0].replace(target_file)
     for path in temp_output.iterdir():
-        path.unlink(missing_ok=True)
+        _remove_tree(path)
     temp_output.rmdir()
 
 
