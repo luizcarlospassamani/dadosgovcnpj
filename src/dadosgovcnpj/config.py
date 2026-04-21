@@ -45,6 +45,10 @@ class PipelineConfig:
         return self.data_dir / "tmp"
 
     @property
+    def parquet_dir(self) -> Path:
+        return self.data_dir / "parquet"
+
+    @property
     def output_dir(self) -> Path:
         return self.data_dir / "output"
 
@@ -66,6 +70,7 @@ class PipelineConfig:
             self.raw_dir,
             self.extracted_dir,
             self.tmp_dir,
+            self.parquet_dir,
             self.output_dir,
             self.metadata_dir,
         ):
