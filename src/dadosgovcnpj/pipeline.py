@@ -109,6 +109,34 @@ def _remove_tree(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+def _storage_profile(config: PipelineConfig) -> str:
+    return "test" if config.test_mode else "full"
+
+
+def _parquet_dataset_path(config: PipelineConfig, dataset_name: str) -> Path:
+    release = resolve_release(config)
+    return config.parquet_dir / _storage_profile(config) / release / dataset_name
+
+
+def _has_parquet_dataset(config: PipelineConfig, dataset_name: str) -> bool:
+    parquet_path = _parquet_dataset_path(config, dataset_name)
+    return parquet_path.exists() and any(parquet_path.iterdir())
+
+
+def _required_parquet_datasets(config: PipelineConfig) -> list[str]:
+    datasets = ["empresas", "estabelecimentos", "simples", "cnaes", "naturezas", "municipios", "jucees"]
+    if config.include_socios:
+        datasets.append("socios")
+    return datasets
+
+
+def _write_parquet(df: DataFrame, target_path: Path) -> None:
+    if target_path.exists():
+        _remove_tree(target_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    df.write.mode("overwrite").parquet(str(target_path))
+
+
 def run_discover_release(config: PipelineConfig) -> None:
     release = discover_latest_release(config)
     persist_release(config, release)
@@ -127,8 +155,68 @@ def run_extract(config: PipelineConfig) -> None:
     LOGGER.info("Extracao concluida com %s arquivo(s).", len(extracted))
 
 
+def _read_extracted_csv_dataset(
+    spark: SparkSession,
+    config: PipelineConfig,
+    prefix: str,
+    schema_columns: list[str],
+) -> DataFrame:
+    paths = [str(path) for path in flatten_files(config.extracted_dir, prefix)]
+    return _read_csv(spark, paths, schema_columns)
+
+
+def _read_jucees_raw_csv(spark: SparkSession, config: PipelineConfig) -> DataFrame:
+    path = str(config.raw_dir / "jucees_empresas_es.csv")
+    return _read_jucees_csv(spark, path)
+
+
+def _ensure_parquet_inputs(config: PipelineConfig) -> None:
+    missing = [dataset for dataset in _required_parquet_datasets(config) if not _has_parquet_dataset(config, dataset)]
+    if not missing:
+        LOGGER.info("Camada parquet ja existe para %s (%s).", resolve_release(config), _storage_profile(config))
+        return
+
+    LOGGER.info("Camada parquet incompleta. Datasets faltando: %s", ", ".join(missing))
+    run_download(config)
+    run_extract(config)
+    run_materialize_parquet(config)
+
+
+def run_materialize_parquet(config: PipelineConfig) -> None:
+    spark = build_spark_session("dadosgovcnpj-materialize-parquet")
+    try:
+        dataset_builders: list[tuple[str, callable]] = [
+            ("empresas", lambda: _read_extracted_csv_dataset(spark, config, "Empresas", EMPRESAS_COLUMNS)),
+            (
+                "estabelecimentos",
+                lambda: _read_extracted_csv_dataset(spark, config, "Estabelecimentos", ESTABELECIMENTOS_COLUMNS),
+            ),
+            ("simples", lambda: _read_extracted_csv_dataset(spark, config, "Simples", SIMPLES_COLUMNS)),
+            ("cnaes", lambda: _read_extracted_csv_dataset(spark, config, "Cnaes", LOOKUP_COLUMNS)),
+            ("naturezas", lambda: _read_extracted_csv_dataset(spark, config, "Naturezas", LOOKUP_COLUMNS)),
+            ("municipios", lambda: _read_extracted_csv_dataset(spark, config, "Municipios", MUNICIPIOS_COLUMNS)),
+            ("jucees", lambda: _read_jucees_raw_csv(spark, config)),
+        ]
+        if config.include_socios:
+            dataset_builders.append(
+                ("socios", lambda: _read_extracted_csv_dataset(spark, config, "Socios", SOCIOS_COLUMNS))
+            )
+
+        for dataset_name, builder in dataset_builders:
+            if _has_parquet_dataset(config, dataset_name):
+                LOGGER.info("Parquet ja existe, pulando materializacao: %s", dataset_name)
+                continue
+            parquet_path = _parquet_dataset_path(config, dataset_name)
+            LOGGER.info("Materializando parquet: %s", parquet_path)
+            _write_parquet(builder(), parquet_path)
+    finally:
+        spark.stop()
+
+
 def run_validate(config: PipelineConfig) -> None:
-    validate_zip_integrity(config)
+    _ensure_parquet_inputs(config)
+    if any(config.raw_dir.glob("*.zip")):
+        validate_zip_integrity(config)
     spark = build_spark_session("dadosgovcnpj-validate")
     try:
         establishments = read_establishments(spark, config).filter(F.col("uf") == config.state)
@@ -152,43 +240,51 @@ def run_validate(config: PipelineConfig) -> None:
 
 
 def read_empresas(spark: SparkSession, config: PipelineConfig) -> DataFrame:
-    paths = [str(path) for path in flatten_files(config.extracted_dir, "Empresas")]
-    return _read_csv(spark, paths, EMPRESAS_COLUMNS)
+    if _has_parquet_dataset(config, "empresas"):
+        return spark.read.parquet(str(_parquet_dataset_path(config, "empresas")))
+    return _read_extracted_csv_dataset(spark, config, "Empresas", EMPRESAS_COLUMNS)
 
 
 def read_establishments(spark: SparkSession, config: PipelineConfig) -> DataFrame:
-    paths = [str(path) for path in flatten_files(config.extracted_dir, "Estabelecimentos")]
-    return _read_csv(spark, paths, ESTABELECIMENTOS_COLUMNS)
+    if _has_parquet_dataset(config, "estabelecimentos"):
+        return spark.read.parquet(str(_parquet_dataset_path(config, "estabelecimentos")))
+    return _read_extracted_csv_dataset(spark, config, "Estabelecimentos", ESTABELECIMENTOS_COLUMNS)
 
 
 def read_simples(spark: SparkSession, config: PipelineConfig) -> DataFrame:
-    paths = [str(path) for path in flatten_files(config.extracted_dir, "Simples")]
-    return _read_csv(spark, paths, SIMPLES_COLUMNS)
+    if _has_parquet_dataset(config, "simples"):
+        return spark.read.parquet(str(_parquet_dataset_path(config, "simples")))
+    return _read_extracted_csv_dataset(spark, config, "Simples", SIMPLES_COLUMNS)
 
 
 def read_socios(spark: SparkSession, config: PipelineConfig) -> DataFrame:
-    paths = [str(path) for path in flatten_files(config.extracted_dir, "Socios")]
-    return _read_csv(spark, paths, SOCIOS_COLUMNS)
+    if _has_parquet_dataset(config, "socios"):
+        return spark.read.parquet(str(_parquet_dataset_path(config, "socios")))
+    return _read_extracted_csv_dataset(spark, config, "Socios", SOCIOS_COLUMNS)
 
 
 def read_cnaes(spark: SparkSession, config: PipelineConfig) -> DataFrame:
-    paths = [str(path) for path in flatten_files(config.extracted_dir, "Cnaes")]
-    return _read_csv(spark, paths, LOOKUP_COLUMNS)
+    if _has_parquet_dataset(config, "cnaes"):
+        return spark.read.parquet(str(_parquet_dataset_path(config, "cnaes")))
+    return _read_extracted_csv_dataset(spark, config, "Cnaes", LOOKUP_COLUMNS)
 
 
 def read_naturezas(spark: SparkSession, config: PipelineConfig) -> DataFrame:
-    paths = [str(path) for path in flatten_files(config.extracted_dir, "Naturezas")]
-    return _read_csv(spark, paths, LOOKUP_COLUMNS)
+    if _has_parquet_dataset(config, "naturezas"):
+        return spark.read.parquet(str(_parquet_dataset_path(config, "naturezas")))
+    return _read_extracted_csv_dataset(spark, config, "Naturezas", LOOKUP_COLUMNS)
 
 
 def read_municipios(spark: SparkSession, config: PipelineConfig) -> DataFrame:
-    paths = [str(path) for path in flatten_files(config.extracted_dir, "Municipios")]
-    return _read_csv(spark, paths, MUNICIPIOS_COLUMNS)
+    if _has_parquet_dataset(config, "municipios"):
+        return spark.read.parquet(str(_parquet_dataset_path(config, "municipios")))
+    return _read_extracted_csv_dataset(spark, config, "Municipios", MUNICIPIOS_COLUMNS)
 
 
 def read_jucees(spark: SparkSession, config: PipelineConfig) -> DataFrame:
-    path = str(config.raw_dir / "jucees_empresas_es.csv")
-    return _read_jucees_csv(spark, path)
+    if _has_parquet_dataset(config, "jucees"):
+        return spark.read.parquet(str(_parquet_dataset_path(config, "jucees")))
+    return _read_jucees_raw_csv(spark, config)
 
 
 def build_final_dataset(spark: SparkSession, config: PipelineConfig) -> DataFrame:
@@ -370,6 +466,7 @@ def write_single_csv(df: DataFrame, target_file: Path, tmp_dir: Path) -> None:
 
 
 def run_build_final(config: PipelineConfig) -> None:
+    _ensure_parquet_inputs(config)
     spark = build_spark_session("dadosgovcnpj-build-final")
     try:
         final_df = build_final_dataset(spark, config)
@@ -395,8 +492,7 @@ def run_cleanup(config: PipelineConfig) -> None:
 def run_all(config: PipelineConfig) -> None:
     config.include_socios = True
     run_discover_release(config)
-    run_download(config)
-    run_extract(config)
+    _ensure_parquet_inputs(config)
     run_validate(config)
     run_build_final(config)
     if config.cleanup:
@@ -407,7 +503,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Pipeline local em PySpark para base CNPJ do ES.")
     parser.add_argument(
         "command",
-        choices=["discover-release", "download", "extract", "validate", "build-final", "cleanup", "all"],
+        choices=["discover-release", "download", "extract", "materialize-parquet", "validate", "build-final", "cleanup", "all"],
     )
     parser.add_argument("--state", default="ES", help="UF alvo para o recorte da base. Padrao: ES.")
     parser.add_argument("--release", default=None, help="Release mensal da Receita, ex.: 2026-01.")
@@ -463,6 +559,8 @@ def main() -> None:
         run_extract(config)
     elif args.command == "validate":
         run_validate(config)
+    elif args.command == "materialize-parquet":
+        run_materialize_parquet(config)
     elif args.command == "build-final":
         run_build_final(config)
     elif args.command == "cleanup":
