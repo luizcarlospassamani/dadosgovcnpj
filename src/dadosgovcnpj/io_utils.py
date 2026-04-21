@@ -196,10 +196,11 @@ def apply_test_mode(selected_files: list[str], enabled: bool) -> list[str]:
 
     empresas = [name for name in selected_files if re.match(r"Empresas\d+\.zip$", name)]
     estabelecimentos = [name for name in selected_files if re.match(r"Estabelecimentos\d+\.zip$", name)]
+    socios = [name for name in selected_files if re.match(r"Socios\d+\.zip$", name)]
     outros = [
         name
         for name in selected_files
-        if name not in empresas and name not in estabelecimentos and not re.match(r"Socios\d+\.zip$", name)
+        if name not in empresas and name not in estabelecimentos and name not in socios
     ]
 
     limited: list[str] = []
@@ -207,6 +208,8 @@ def apply_test_mode(selected_files: list[str], enabled: bool) -> list[str]:
         limited.append(empresas[0])
     if estabelecimentos:
         limited.append(estabelecimentos[0])
+    if socios:
+        limited.append(socios[0])
     limited.extend(sorted(outros))
     return sorted(limited)
 
