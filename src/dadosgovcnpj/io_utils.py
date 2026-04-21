@@ -4,12 +4,19 @@ import logging
 import re
 import shutil
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import requests
 
-from dadosgovcnpj.config import JUCEES_CSV_URL, PipelineConfig, RECEITA_INDEX_URLS
+from dadosgovcnpj.config import (
+    DEFAULT_RECEITA_SHARE_DIR,
+    JUCEES_CSV_URL,
+    PipelineConfig,
+    RECEITA_INDEX_URLS,
+    RECEITA_SHARE_BASE_URL,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -36,7 +43,61 @@ def fetch_text(url: str, timeout: int = 120) -> str:
     return response.text
 
 
+def _normalize_share_dir(path: str) -> str:
+    normalized = path.strip() or DEFAULT_RECEITA_SHARE_DIR
+    if not normalized.startswith("/"):
+        normalized = "/" + normalized
+    return normalized.rstrip("/")
+
+
+def _share_resource_url(config: PipelineConfig, *parts: str) -> str:
+    if not config.receita_share_token:
+        raise RuntimeError("Token da Receita nao informado para acesso via compartilhamento.")
+    clean_parts = [part.strip("/") for part in parts if part and part.strip("/")]
+    encoded_parts = "/".join(quote(part) for part in clean_parts)
+    base = f"{RECEITA_SHARE_BASE_URL}/{quote(config.receita_share_token)}"
+    return f"{base}/{encoded_parts}" if encoded_parts else base
+
+
+def _propfind(url: str, depth: int = 1, timeout: int = 120) -> ET.Element:
+    headers = {
+        **DEFAULT_HEADERS,
+        "Depth": str(depth),
+        "Content-Type": "application/xml; charset=utf-8",
+    }
+    body = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<d:propfind xmlns:d=\"DAV:\">
+  <d:prop>
+    <d:displayname/>
+    <d:resourcetype/>
+  </d:prop>
+</d:propfind>
+"""
+    response = requests.request("PROPFIND", url, headers=headers, data=body, timeout=timeout)
+    response.raise_for_status()
+    return ET.fromstring(response.text)
+
+
+def _iter_dav_entries(root: ET.Element) -> list[dict[str, str | bool]]:
+    namespace = {"d": "DAV:"}
+    entries: list[dict[str, str | bool]] = []
+    for response in root.findall("d:response", namespace):
+        href = response.findtext("d:href", default="", namespaces=namespace)
+        prop = response.find("d:propstat/d:prop", namespace)
+        if prop is None:
+            continue
+        displayname = prop.findtext("d:displayname", default="", namespaces=namespace)
+        is_collection = prop.find("d:resourcetype/d:collection", namespace) is not None
+        entries.append({"href": href, "name": displayname, "is_collection": is_collection})
+    return entries
+
+
 def resolve_receita_base_url(config: PipelineConfig) -> str:
+    if config.receita_share_token:
+        share_root = _share_resource_url(config, _normalize_share_dir(config.receita_share_dir))
+        config.base_url_file.write_text(share_root, encoding="utf-8")
+        return share_root
+
     if config.base_url_file.exists():
         cached_url = config.base_url_file.read_text(encoding="utf-8").strip()
         if cached_url:
@@ -57,6 +118,17 @@ def resolve_receita_base_url(config: PipelineConfig) -> str:
 
 
 def discover_latest_release(config: PipelineConfig) -> str:
+    if config.receita_share_token:
+        root = _propfind(_share_resource_url(config, _normalize_share_dir(config.receita_share_dir)))
+        releases = [
+            str(entry["name"])
+            for entry in _iter_dav_entries(root)
+            if entry["is_collection"] and re.fullmatch(r"\d{4}-\d{2}", str(entry["name"]))
+        ]
+        if not releases:
+            raise RuntimeError("Nao foi possivel identificar a release mais recente no compartilhamento da Receita.")
+        return sorted(releases)[-1]
+
     html = fetch_text(resolve_receita_base_url(config))
     matches = re.findall(r'href="(\d{4}-\d{2})/"', html)
     if not matches:
@@ -80,10 +152,23 @@ def resolve_release(config: PipelineConfig) -> str:
 
 
 def receita_release_url(config: PipelineConfig, release: str) -> str:
+    if config.receita_share_token:
+        return _share_resource_url(config, _normalize_share_dir(config.receita_share_dir), release)
     return urljoin(resolve_receita_base_url(config), f"{release}/")
 
 
 def list_remote_files(config: PipelineConfig, release: str) -> list[str]:
+    if config.receita_share_token:
+        root = _propfind(receita_release_url(config, release))
+        files = [
+            str(entry["name"])
+            for entry in _iter_dav_entries(root)
+            if not entry["is_collection"] and str(entry["name"]).lower().endswith(".zip")
+        ]
+        if not files:
+            raise RuntimeError(f"Nenhum arquivo zip encontrado para a release {release}.")
+        return sorted(set(files))
+
     html = fetch_text(receita_release_url(config, release))
     files = re.findall(r'href="([^"/][^"]+\.zip)"', html, flags=re.IGNORECASE)
     if not files:
@@ -120,13 +205,12 @@ def download_inputs(config: PipelineConfig) -> list[Path]:
     release = resolve_release(config)
     remote_files = list_remote_files(config, release)
     selected_files = select_files(remote_files, include_socios=config.include_socios)
-    base_url = receita_release_url(config, release)
     downloaded: list[Path] = []
 
     for file_name in selected_files:
         destination = config.raw_dir / file_name
         if not destination.exists():
-            download_file(urljoin(base_url, file_name), destination)
+            download_file(f"{receita_release_url(config, release).rstrip('/')}/{quote(file_name)}", destination)
         else:
             LOGGER.info("Arquivo ja existe, pulando download: %s", destination.name)
         downloaded.append(destination)
