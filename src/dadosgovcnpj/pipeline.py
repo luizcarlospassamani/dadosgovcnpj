@@ -335,6 +335,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--state", default="ES", help="UF alvo para o recorte da base. Padrao: ES.")
     parser.add_argument("--release", default=None, help="Release mensal da Receita, ex.: 2026-01.")
     parser.add_argument(
+        "--receita-share-token",
+        default=None,
+        help="Token publico do compartilhamento da Receita/SERPRO+, ex.: gn672Ad4CF8N6TK.",
+    )
+    parser.add_argument(
+        "--receita-share-dir",
+        default="/Dados/Cadastros/CNPJ",
+        help="Diretorio base dentro do compartilhamento da Receita. Padrao: /Dados/Cadastros/CNPJ.",
+    )
+    parser.add_argument(
         "--include-socios",
         action="store_true",
         help="Baixa e gera tambem uma base separada de socios do estado alvo.",
@@ -357,6 +367,8 @@ def main() -> None:
         release=args.release,
         include_socios=args.include_socios,
         cleanup=args.cleanup,
+        receita_share_token=args.receita_share_token,
+        receita_share_dir=args.receita_share_dir,
     )
     config.ensure_directories()
 
