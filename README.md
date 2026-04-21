@@ -223,9 +223,8 @@ Remove `data/raw/` e `data/extracted/`, preservando apenas `data/output/`.
 - O volume da Receita e grande. O pipeline foi desenhado para ser simples e local, mas ainda assim vai exigir espaco em disco e tempo de processamento.
 - A exportacao final gera um CSV unico para facilitar a carga no Power BI.
 - A base da JUCEES nao cobre todo o universo do CNPJ; ela entra como enriquecimento estadual adicional.
-- Se o token mudar no futuro, basta executar novamente com um novo valor em `--receita-share-token`.
-- Se a Receita mudar o diretorio compartilhado, voce tambem pode sobrescrever o caminho com `--receita-share-dir`.
 - Para a primeira execucao, `--test-mode` reduz o volume e baixa apenas 1 arquivo de Empresas e 1 de Estabelecimentos, mantendo os arquivos auxiliares.
+- O pipeline remove arquivos `.zip` antigos antes de um novo download e tambem apaga os `.zip` apos a extracao bem-sucedida.
 
 ## Comando recomendado em maquina Linux nova
 
