@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-RECEITA_INDEX_URL = "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/"
+RECEITA_INDEX_URLS = [
+    "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/",
+    "https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/",
+]
 JUCEES_CSV_URL = (
     "https://dados.es.gov.br/dataset/9bf62349-634b-4e87-93ee-d7ee521bb00f/"
     "resource/f3f7fed7-9d67-4616-962e-d3084146eab9/download/"
@@ -47,6 +50,10 @@ class PipelineConfig:
     @property
     def release_file(self) -> Path:
         return self.metadata_dir / "latest_release.txt"
+
+    @property
+    def base_url_file(self) -> Path:
+        return self.metadata_dir / "base_url.txt"
 
     def ensure_directories(self) -> None:
         for path in (
