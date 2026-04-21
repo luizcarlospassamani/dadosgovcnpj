@@ -80,6 +80,21 @@ def _format_cnpj() -> F.Column:
     return F.concat_ws("", F.col("cnpj_basico"), F.col("cnpj_ordem"), F.col("cnpj_dv"))
 
 
+def _blank_to_null(column_name: str) -> F.Column:
+    trimmed = F.trim(F.col(column_name))
+    return F.when(trimmed == "", F.lit(None)).otherwise(trimmed)
+
+
+def _format_phone(ddd_column: str, number_column: str) -> F.Column:
+    ddd = _blank_to_null(ddd_column)
+    number = _blank_to_null(number_column)
+    return (
+        F.when(ddd.isNotNull() & number.isNotNull(), F.concat(F.lit("("), ddd, F.lit(") "), number))
+        .when(number.isNotNull(), number)
+        .otherwise(F.lit(None))
+    )
+
+
 def run_discover_release(config: PipelineConfig) -> None:
     release = discover_latest_release(config)
     persist_release(config, release)
@@ -167,6 +182,10 @@ def build_final_dataset(spark: SparkSession, config: PipelineConfig) -> DataFram
         read_establishments(spark, config)
         .filter(F.col("uf") == config.state)
         .withColumn("cnpj", _format_cnpj())
+        .withColumn("telefone_1_completo", _format_phone("ddd_1", "telefone_1"))
+        .withColumn("telefone_2_completo", _format_phone("ddd_2", "telefone_2"))
+        .withColumn("fax_completo", _format_phone("ddd_fax", "fax"))
+        .withColumn("email", _blank_to_null("correio_eletronico"))
     )
 
     empresas = read_empresas(spark, config)
@@ -249,9 +268,12 @@ def build_final_dataset(spark: SparkSession, config: PipelineConfig) -> DataFram
         "razao_social",
         "nome_fantasia",
         "identificador_matriz_filial",
+        "qualificacao_responsavel",
         "situacao_cadastral",
         "data_situacao_cadastral",
         "motivo_situacao_cadastral",
+        "situacao_especial",
+        "data_situacao_especial",
         "data_inicio_atividade",
         "cnae_fiscal_principal",
         "cnae_descricao",
@@ -260,6 +282,9 @@ def build_final_dataset(spark: SparkSession, config: PipelineConfig) -> DataFram
         "natureza_juridica_descricao",
         "porte_empresa",
         "capital_social",
+        "ente_federativo_responsavel",
+        "pais",
+        "nome_cidade_exterior",
         "tipo_logradouro",
         "logradouro",
         "numero",
@@ -271,11 +296,15 @@ def build_final_dataset(spark: SparkSession, config: PipelineConfig) -> DataFram
         "municipio_descricao",
         "ddd_1",
         "telefone_1",
+        "telefone_1_completo",
         "ddd_2",
         "telefone_2",
+        "telefone_2_completo",
         "ddd_fax",
         "fax",
+        "fax_completo",
         "correio_eletronico",
+        "email",
         "opcao_simples",
         "data_opcao_simples",
         "data_exclusao_simples",
