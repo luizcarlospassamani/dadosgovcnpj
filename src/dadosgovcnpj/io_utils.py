@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from dadosgovcnpj.config import JUCEES_CSV_URL, PipelineConfig, RECEITA_INDEX_URL
+from dadosgovcnpj.config import JUCEES_CSV_URL, PipelineConfig, RECEITA_INDEX_URLS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -36,8 +36,28 @@ def fetch_text(url: str, timeout: int = 120) -> str:
     return response.text
 
 
-def discover_latest_release() -> str:
-    html = fetch_text(RECEITA_INDEX_URL)
+def resolve_receita_base_url(config: PipelineConfig) -> str:
+    if config.base_url_file.exists():
+        cached_url = config.base_url_file.read_text(encoding="utf-8").strip()
+        if cached_url:
+            return cached_url
+
+    errors: list[str] = []
+    for candidate_url in RECEITA_INDEX_URLS:
+        try:
+            fetch_text(candidate_url)
+            config.base_url_file.write_text(candidate_url, encoding="utf-8")
+            return candidate_url
+        except requests.RequestException as exc:
+            errors.append(f"{candidate_url} -> {exc}")
+
+    raise RuntimeError(
+        "Nenhum endpoint oficial da Receita respondeu corretamente. Tentativas: " + " | ".join(errors)
+    )
+
+
+def discover_latest_release(config: PipelineConfig) -> str:
+    html = fetch_text(resolve_receita_base_url(config))
     matches = re.findall(r'href="(\d{4}-\d{2})/"', html)
     if not matches:
         raise RuntimeError("Nao foi possivel identificar a release mais recente da Receita.")
@@ -54,17 +74,17 @@ def resolve_release(config: PipelineConfig) -> str:
         return config.release
     if config.release_file.exists():
         return config.release_file.read_text(encoding="utf-8").strip()
-    release = discover_latest_release()
+    release = discover_latest_release(config)
     persist_release(config, release)
     return release
 
 
-def receita_release_url(release: str) -> str:
-    return urljoin(RECEITA_INDEX_URL, f"{release}/")
+def receita_release_url(config: PipelineConfig, release: str) -> str:
+    return urljoin(resolve_receita_base_url(config), f"{release}/")
 
 
-def list_remote_files(release: str) -> list[str]:
-    html = fetch_text(receita_release_url(release))
+def list_remote_files(config: PipelineConfig, release: str) -> list[str]:
+    html = fetch_text(receita_release_url(config, release))
     files = re.findall(r'href="([^"/][^"]+\.zip)"', html, flags=re.IGNORECASE)
     if not files:
         raise RuntimeError(f"Nenhum arquivo zip encontrado para a release {release}.")
@@ -98,9 +118,9 @@ def download_file(url: str, destination: Path) -> None:
 def download_inputs(config: PipelineConfig) -> list[Path]:
     config.ensure_directories()
     release = resolve_release(config)
-    remote_files = list_remote_files(release)
+    remote_files = list_remote_files(config, release)
     selected_files = select_files(remote_files, include_socios=config.include_socios)
-    base_url = receita_release_url(release)
+    base_url = receita_release_url(config, release)
     downloaded: list[Path] = []
 
     for file_name in selected_files:
