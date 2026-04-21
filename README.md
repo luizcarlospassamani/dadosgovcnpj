@@ -137,19 +137,13 @@ python3 main.py cleanup --state ES
 
 ## Execucao completa
 
-Sem socios:
+Execucao completa padrao com socios incluidos:
 
 ```bash
 python3 main.py all --state ES --cleanup
 ```
 
-Com socios:
-
-```bash
-python3 main.py all --state ES --include-socios --cleanup
-```
-
-Usando o compartilhamento atual da Receita com token dinamico:
+Com token dinamico da Receita:
 
 ```bash
 python3 main.py all --state ES --cleanup --receita-share-token gn672Ad4CF8N6TK
@@ -173,8 +167,6 @@ Os arquivos finais ficam em `data/output/`.
 ### `discover-release`
 
 Le o indice oficial da Receita e identifica a pasta mensal mais recente.
-
-Quando `--receita-share-token` e informado, o projeto usa o compartilhamento publico da Receita via WebDAV para descobrir a release mais recente e listar os arquivos `.zip`.
 
 ### `download`
 
@@ -212,6 +204,7 @@ Monta a base final do ES com:
 - natureza juridica com descricao
 - municipio com descricao
 - flags e datas de Simples e MEI
+- resumo agregado de socios por empresa
 - enriquecimento JUCEES
 
 ### `cleanup`
@@ -225,6 +218,7 @@ Remove `data/raw/` e `data/extracted/`, preservando apenas `data/output/`.
 - A base da JUCEES nao cobre todo o universo do CNPJ; ela entra como enriquecimento estadual adicional.
 - Para a primeira execucao, `--test-mode` reduz o volume e baixa apenas 1 arquivo de Empresas e 1 de Estabelecimentos, mantendo os arquivos auxiliares.
 - O pipeline remove arquivos `.zip` antigos antes de um novo download e tambem apaga os `.zip` apos a extracao bem-sucedida.
+- Na execucao `all`, o projeto inclui socios por padrao e enriquece o CSV principal com agregados de socios.
 
 ## Comando recomendado em maquina Linux nova
 
@@ -232,12 +226,6 @@ Depois do clone e da instalacao:
 
 ```bash
 python3 main.py all --state ES --cleanup
-```
-
-Se quiser incluir socios:
-
-```bash
-python3 main.py all --state ES --include-socios --cleanup
 ```
 
 Se a Receita estiver usando o compartilhamento SERPRO+ com token publico:
