@@ -211,6 +211,12 @@ def apply_test_mode(selected_files: list[str], enabled: bool) -> list[str]:
     return sorted(limited)
 
 
+def clear_existing_archives(config: PipelineConfig) -> None:
+    for zip_path in sorted(config.raw_dir.glob("*.zip")):
+        LOGGER.info("Removendo arquivo zip antigo antes do novo download: %s", zip_path.name)
+        zip_path.unlink(missing_ok=True)
+
+
 def download_file(url: str, destination: Path) -> None:
     LOGGER.info("Baixando %s", url)
     with requests.get(url, headers=DEFAULT_HEADERS, stream=True, timeout=120) as response:
@@ -223,6 +229,7 @@ def download_file(url: str, destination: Path) -> None:
 
 def download_inputs(config: PipelineConfig) -> list[Path]:
     config.ensure_directories()
+    clear_existing_archives(config)
     release = resolve_release(config)
     remote_files = list_remote_files(config, release)
     selected_files = select_files(remote_files, include_socios=config.include_socios)
@@ -231,10 +238,7 @@ def download_inputs(config: PipelineConfig) -> list[Path]:
 
     for file_name in selected_files:
         destination = config.raw_dir / file_name
-        if not destination.exists():
-            download_file(f"{receita_release_url(config, release).rstrip('/')}/{quote(file_name)}", destination)
-        else:
-            LOGGER.info("Arquivo ja existe, pulando download: %s", destination.name)
+        download_file(f"{receita_release_url(config, release).rstrip('/')}/{quote(file_name)}", destination)
         downloaded.append(destination)
 
     jucees_destination = config.raw_dir / "jucees_empresas_es.csv"
@@ -262,6 +266,8 @@ def extract_archives(config: PipelineConfig) -> list[Path]:
         with zipfile.ZipFile(zip_path, "r") as zip_file:
             zip_file.extractall(target_dir)
         extracted_paths.extend(path for path in target_dir.iterdir() if path.is_file())
+        LOGGER.info("Removendo zip apos extracao bem-sucedida: %s", zip_path.name)
+        zip_path.unlink(missing_ok=True)
     return extracted_paths
 
 
