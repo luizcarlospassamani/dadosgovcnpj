@@ -180,6 +180,26 @@ def build_final_dataset(spark: SparkSession, config: PipelineConfig) -> DataFram
     municipios = read_municipios(spark, config).withColumnRenamed("codigo", "municipio_codigo").withColumnRenamed(
         "descricao", "municipio_descricao"
     )
+    socios_summary = None
+    if config.include_socios:
+        socios_summary = (
+            read_socios(spark, config)
+            .groupBy("cnpj_basico")
+            .agg(
+                F.count("*").alias("qtd_socios"),
+                F.sum(F.when(F.col("identificador_socio") == "1", F.lit(1)).otherwise(F.lit(0))).alias(
+                    "qtd_socios_pessoa_juridica"
+                ),
+                F.sum(F.when(F.col("identificador_socio") == "2", F.lit(1)).otherwise(F.lit(0))).alias(
+                    "qtd_socios_pessoa_fisica"
+                ),
+                F.sum(F.when(F.col("identificador_socio") == "3", F.lit(1)).otherwise(F.lit(0))).alias(
+                    "qtd_socios_estrangeiro"
+                ),
+                F.min("data_entrada_sociedade").alias("primeira_data_entrada_sociedade"),
+                F.max("data_entrada_sociedade").alias("ultima_data_entrada_sociedade"),
+            )
+        )
     jucees = (
         read_jucees(spark, config)
         .withColumn("cnpj", F.regexp_replace(F.col("cnpj"), r"\D", ""))
@@ -211,55 +231,64 @@ def build_final_dataset(spark: SparkSession, config: PipelineConfig) -> DataFram
             how="left",
         )
         .join(jucees, on="cnpj", how="left")
-        .select(
-            "cnpj",
-            "cnpj_basico",
-            "cnpj_ordem",
-            "cnpj_dv",
-            "razao_social",
-            "nome_fantasia",
-            "identificador_matriz_filial",
-            "situacao_cadastral",
-            "data_situacao_cadastral",
-            "motivo_situacao_cadastral",
-            "data_inicio_atividade",
-            "cnae_fiscal_principal",
-            "cnae_descricao",
-            "cnae_fiscal_secundaria",
-            "natureza_juridica",
-            "natureza_juridica_descricao",
-            "porte_empresa",
-            "capital_social",
-            "tipo_logradouro",
-            "logradouro",
-            "numero",
-            "complemento",
-            "bairro",
-            "cep",
-            "uf",
-            "municipio",
-            "municipio_descricao",
-            "ddd_1",
-            "telefone_1",
-            "ddd_2",
-            "telefone_2",
-            "ddd_fax",
-            "fax",
-            "correio_eletronico",
-            "opcao_simples",
-            "data_opcao_simples",
-            "data_exclusao_simples",
-            "opcao_mei",
-            "data_opcao_mei",
-            "data_exclusao_mei",
-            "jucees_nire",
-            "jucees_constituicao",
-            "jucees_nome_empresa",
-            "jucees_nome_fantasia",
-            "jucees_municipio",
-            "jucees_natureza_juridica",
-            "jucees_atividade_principal",
-        )
+    )
+    if socios_summary is not None:
+        final_df = final_df.join(socios_summary, on="cnpj_basico", how="left")
+
+    final_df = final_df.select(
+        "cnpj",
+        "cnpj_basico",
+        "cnpj_ordem",
+        "cnpj_dv",
+        "razao_social",
+        "nome_fantasia",
+        "identificador_matriz_filial",
+        "situacao_cadastral",
+        "data_situacao_cadastral",
+        "motivo_situacao_cadastral",
+        "data_inicio_atividade",
+        "cnae_fiscal_principal",
+        "cnae_descricao",
+        "cnae_fiscal_secundaria",
+        "natureza_juridica",
+        "natureza_juridica_descricao",
+        "porte_empresa",
+        "capital_social",
+        "tipo_logradouro",
+        "logradouro",
+        "numero",
+        "complemento",
+        "bairro",
+        "cep",
+        "uf",
+        "municipio",
+        "municipio_descricao",
+        "ddd_1",
+        "telefone_1",
+        "ddd_2",
+        "telefone_2",
+        "ddd_fax",
+        "fax",
+        "correio_eletronico",
+        "opcao_simples",
+        "data_opcao_simples",
+        "data_exclusao_simples",
+        "opcao_mei",
+        "data_opcao_mei",
+        "data_exclusao_mei",
+        "qtd_socios",
+        "qtd_socios_pessoa_juridica",
+        "qtd_socios_pessoa_fisica",
+        "qtd_socios_estrangeiro",
+        "primeira_data_entrada_sociedade",
+        "ultima_data_entrada_sociedade",
+        "jucees_nire",
+        "jucees_constituicao",
+        "jucees_nome_empresa",
+        "jucees_nome_fantasia",
+        "jucees_municipio",
+        "jucees_natureza_juridica",
+        "jucees_atividade_principal",
     )
     return final_df
 
@@ -317,6 +346,7 @@ def run_cleanup(config: PipelineConfig) -> None:
 
 
 def run_all(config: PipelineConfig) -> None:
+    config.include_socios = True
     run_discover_release(config)
     run_download(config)
     run_extract(config)
