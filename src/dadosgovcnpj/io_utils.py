@@ -65,8 +65,8 @@ def _propfind(url: str, depth: int = 1, timeout: int = 120) -> ET.Element:
         "Depth": str(depth),
         "Content-Type": "application/xml; charset=utf-8",
     }
-    body = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<d:propfind xmlns:d=\"DAV:\">
+    body = """<?xml version="1.0" encoding="UTF-8"?>
+<d:propfind xmlns:d="DAV:">
   <d:prop>
     <d:displayname/>
     <d:resourcetype/>
@@ -211,10 +211,19 @@ def apply_test_mode(selected_files: list[str], enabled: bool) -> list[str]:
     return sorted(limited)
 
 
-def clear_existing_archives(config: PipelineConfig) -> None:
-    for zip_path in sorted(config.raw_dir.glob("*.zip")):
-        LOGGER.info("Removendo arquivo zip antigo antes do novo download: %s", zip_path.name)
-        zip_path.unlink(missing_ok=True)
+def _is_valid_zip(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        with zipfile.ZipFile(path, "r") as zip_file:
+            return zip_file.testzip() is None
+    except zipfile.BadZipFile:
+        return False
+
+
+def has_extracted_content(config: PipelineConfig, zip_name: str) -> bool:
+    extracted_dir = config.extracted_dir / Path(zip_name).stem
+    return extracted_dir.exists() and any(extracted_dir.iterdir())
 
 
 def download_file(url: str, destination: Path) -> None:
@@ -229,7 +238,6 @@ def download_file(url: str, destination: Path) -> None:
 
 def download_inputs(config: PipelineConfig) -> list[Path]:
     config.ensure_directories()
-    clear_existing_archives(config)
     release = resolve_release(config)
     remote_files = list_remote_files(config, release)
     selected_files = select_files(remote_files, include_socios=config.include_socios)
@@ -238,6 +246,19 @@ def download_inputs(config: PipelineConfig) -> list[Path]:
 
     for file_name in selected_files:
         destination = config.raw_dir / file_name
+        if has_extracted_content(config, file_name):
+            LOGGER.info("Extracao ja existe, pulando download: %s", file_name)
+            continue
+
+        if _is_valid_zip(destination):
+            LOGGER.info("Zip valido ja existe, pulando download: %s", destination.name)
+            downloaded.append(destination)
+            continue
+
+        if destination.exists():
+            LOGGER.info("Zip existente invalido ou incompleto, removendo: %s", destination.name)
+            destination.unlink(missing_ok=True)
+
         download_file(f"{receita_release_url(config, release).rstrip('/')}/{quote(file_name)}", destination)
         downloaded.append(destination)
 
