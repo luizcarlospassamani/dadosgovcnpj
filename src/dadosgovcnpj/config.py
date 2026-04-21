@@ -8,6 +8,8 @@ RECEITA_INDEX_URLS = [
     "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/",
     "https://arquivos.receitafederal.gov.br/cnpj/dados_abertos_cnpj/",
 ]
+RECEITA_SHARE_BASE_URL = "https://arquivos.receitafederal.gov.br/public.php/dav/files"
+DEFAULT_RECEITA_SHARE_DIR = "/Dados/Cadastros/CNPJ"
 JUCEES_CSV_URL = (
     "https://dados.es.gov.br/dataset/9bf62349-634b-4e87-93ee-d7ee521bb00f/"
     "resource/f3f7fed7-9d67-4616-962e-d3084146eab9/download/"
@@ -22,6 +24,8 @@ class PipelineConfig:
     release: str | None = None
     include_socios: bool = False
     cleanup: bool = False
+    receita_share_token: str | None = None
+    receita_share_dir: str = DEFAULT_RECEITA_SHARE_DIR
 
     @property
     def data_dir(self) -> Path:
