@@ -26,6 +26,7 @@ class PipelineConfig:
     cleanup: bool = False
     receita_share_token: str | None = None
     receita_share_dir: str = DEFAULT_RECEITA_SHARE_DIR
+    test_mode: bool = False
 
     @property
     def data_dir(self) -> Path:
