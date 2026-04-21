@@ -345,6 +345,11 @@ def parse_args() -> argparse.Namespace:
         help="Diretorio base dentro do compartilhamento da Receita. Padrao: /Dados/Cadastros/CNPJ.",
     )
     parser.add_argument(
+        "--test-mode",
+        action="store_true",
+        help="Modo de teste: baixa apenas 1 arquivo de Empresas e 1 de Estabelecimentos, mantendo os auxiliares.",
+    )
+    parser.add_argument(
         "--include-socios",
         action="store_true",
         help="Baixa e gera tambem uma base separada de socios do estado alvo.",
@@ -369,6 +374,7 @@ def main() -> None:
         cleanup=args.cleanup,
         receita_share_token=args.receita_share_token,
         receita_share_dir=args.receita_share_dir,
+        test_mode=args.test_mode,
     )
     config.ensure_directories()
 
