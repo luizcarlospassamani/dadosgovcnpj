@@ -93,6 +93,12 @@ Com token dinamico da Receita:
 python3 main.py discover-release --receita-share-token gn672Ad4CF8N6TK
 ```
 
+Primeiro teste leve:
+
+```bash
+python3 main.py all --state ES --cleanup --test-mode --receita-share-token gn672Ad4CF8N6TK
+```
+
 ### Baixar os dados
 
 ```bash
@@ -147,6 +153,12 @@ Usando o compartilhamento atual da Receita com token dinamico:
 
 ```bash
 python3 main.py all --state ES --cleanup --receita-share-token gn672Ad4CF8N6TK
+```
+
+Usando modo de teste para baixar so 1 arquivo de Empresas e 1 de Estabelecimentos:
+
+```bash
+python3 main.py all --state ES --cleanup --test-mode --receita-share-token gn672Ad4CF8N6TK
 ```
 
 ## Saidas esperadas
@@ -213,6 +225,7 @@ Remove `data/raw/` e `data/extracted/`, preservando apenas `data/output/`.
 - A base da JUCEES nao cobre todo o universo do CNPJ; ela entra como enriquecimento estadual adicional.
 - Se o token mudar no futuro, basta executar novamente com um novo valor em `--receita-share-token`.
 - Se a Receita mudar o diretorio compartilhado, voce tambem pode sobrescrever o caminho com `--receita-share-dir`.
+- Para a primeira execucao, `--test-mode` reduz o volume e baixa apenas 1 arquivo de Empresas e 1 de Estabelecimentos, mantendo os arquivos auxiliares.
 
 ## Comando recomendado em maquina Linux nova
 
@@ -232,4 +245,10 @@ Se a Receita estiver usando o compartilhamento SERPRO+ com token publico:
 
 ```bash
 python3 main.py all --state ES --cleanup --receita-share-token gn672Ad4CF8N6TK
+```
+
+Para um primeiro teste mais rapido:
+
+```bash
+python3 main.py all --state ES --cleanup --test-mode --receita-share-token gn672Ad4CF8N6TK
 ```
