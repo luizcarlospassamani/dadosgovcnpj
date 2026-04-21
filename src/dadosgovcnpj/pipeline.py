@@ -81,7 +81,7 @@ def _format_cnpj() -> F.Column:
 
 
 def run_discover_release(config: PipelineConfig) -> None:
-    release = discover_latest_release()
+    release = discover_latest_release(config)
     persist_release(config, release)
     LOGGER.info("Release mais recente identificada: %s", release)
 
