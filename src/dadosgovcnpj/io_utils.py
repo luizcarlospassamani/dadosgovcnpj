@@ -190,6 +190,27 @@ def select_files(remote_files: list[str], include_socios: bool) -> list[str]:
     return sorted(selected)
 
 
+def apply_test_mode(selected_files: list[str], enabled: bool) -> list[str]:
+    if not enabled:
+        return selected_files
+
+    empresas = [name for name in selected_files if re.match(r"Empresas\d+\.zip$", name)]
+    estabelecimentos = [name for name in selected_files if re.match(r"Estabelecimentos\d+\.zip$", name)]
+    outros = [
+        name
+        for name in selected_files
+        if name not in empresas and name not in estabelecimentos and not re.match(r"Socios\d+\.zip$", name)
+    ]
+
+    limited: list[str] = []
+    if empresas:
+        limited.append(empresas[0])
+    if estabelecimentos:
+        limited.append(estabelecimentos[0])
+    limited.extend(sorted(outros))
+    return sorted(limited)
+
+
 def download_file(url: str, destination: Path) -> None:
     LOGGER.info("Baixando %s", url)
     with requests.get(url, headers=DEFAULT_HEADERS, stream=True, timeout=120) as response:
@@ -205,6 +226,7 @@ def download_inputs(config: PipelineConfig) -> list[Path]:
     release = resolve_release(config)
     remote_files = list_remote_files(config, release)
     selected_files = select_files(remote_files, include_socios=config.include_socios)
+    selected_files = apply_test_mode(selected_files, enabled=config.test_mode)
     downloaded: list[Path] = []
 
     for file_name in selected_files:
