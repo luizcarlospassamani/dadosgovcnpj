@@ -87,6 +87,12 @@ source ~/.bashrc
 python3 main.py discover-release
 ```
 
+Com token dinamico da Receita:
+
+```bash
+python3 main.py discover-release --receita-share-token gn672Ad4CF8N6TK
+```
+
 ### Baixar os dados
 
 ```bash
@@ -137,6 +143,12 @@ Com socios:
 python3 main.py all --state ES --include-socios --cleanup
 ```
 
+Usando o compartilhamento atual da Receita com token dinamico:
+
+```bash
+python3 main.py all --state ES --cleanup --receita-share-token gn672Ad4CF8N6TK
+```
+
 ## Saidas esperadas
 
 Os arquivos finais ficam em `data/output/`.
@@ -149,6 +161,8 @@ Os arquivos finais ficam em `data/output/`.
 ### `discover-release`
 
 Le o indice oficial da Receita e identifica a pasta mensal mais recente.
+
+Quando `--receita-share-token` e informado, o projeto usa o compartilhamento publico da Receita via WebDAV para descobrir a release mais recente e listar os arquivos `.zip`.
 
 ### `download`
 
@@ -197,6 +211,8 @@ Remove `data/raw/` e `data/extracted/`, preservando apenas `data/output/`.
 - O volume da Receita e grande. O pipeline foi desenhado para ser simples e local, mas ainda assim vai exigir espaco em disco e tempo de processamento.
 - A exportacao final gera um CSV unico para facilitar a carga no Power BI.
 - A base da JUCEES nao cobre todo o universo do CNPJ; ela entra como enriquecimento estadual adicional.
+- Se o token mudar no futuro, basta executar novamente com um novo valor em `--receita-share-token`.
+- Se a Receita mudar o diretorio compartilhado, voce tambem pode sobrescrever o caminho com `--receita-share-dir`.
 
 ## Comando recomendado em maquina Linux nova
 
@@ -210,4 +226,10 @@ Se quiser incluir socios:
 
 ```bash
 python3 main.py all --state ES --include-socios --cleanup
+```
+
+Se a Receita estiver usando o compartilhamento SERPRO+ com token publico:
+
+```bash
+python3 main.py all --state ES --cleanup --receita-share-token gn672Ad4CF8N6TK
 ```
