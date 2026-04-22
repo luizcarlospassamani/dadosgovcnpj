@@ -39,10 +39,12 @@ def build_spark_session(app_name: str) -> SparkSession:
     os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
     return (
         SparkSession.builder.appName(app_name)
-        .master("local[*]")
+        .master("local[2]")
         .config("spark.sql.session.timeZone", "America/Sao_Paulo")
-        .config("spark.driver.memory", "4g")
-        .config("spark.sql.shuffle.partitions", "16")
+        .config("spark.driver.memory", "3g")
+        .config("spark.default.parallelism", "4")
+        .config("spark.sql.shuffle.partitions", "4")
+        .config("spark.sql.files.maxPartitionBytes", str(256 * 1024 * 1024))
         .getOrCreate()
     )
 
@@ -137,6 +139,12 @@ def _write_parquet(df: DataFrame, target_path: Path) -> None:
     df.write.mode("overwrite").parquet(str(target_path))
 
 
+def _materialize_dataset(dataset_name: str, df: DataFrame, target_path: Path) -> None:
+    LOGGER.info("Preparando dataset parquet: %s -> %s", dataset_name, target_path)
+    _write_parquet(df, target_path)
+    LOGGER.info("Dataset parquet concluido: %s", dataset_name)
+
+
 def run_discover_release(config: PipelineConfig) -> None:
     release = discover_latest_release(config)
     persist_release(config, release)
@@ -185,30 +193,59 @@ def _ensure_parquet_inputs(config: PipelineConfig) -> None:
 def run_materialize_parquet(config: PipelineConfig) -> None:
     spark = build_spark_session("dadosgovcnpj-materialize-parquet")
     try:
-        dataset_builders: list[tuple[str, callable]] = [
-            ("empresas", lambda: _read_extracted_csv_dataset(spark, config, "Empresas", EMPRESAS_COLUMNS)),
+        LOGGER.info("Iniciando materializacao parquet para UF %s (%s).", config.state, _storage_profile(config))
+
+        establishments_raw = _read_extracted_csv_dataset(
+            spark, config, "Estabelecimentos", ESTABELECIMENTOS_COLUMNS
+        )
+        municipios_raw = _read_extracted_csv_dataset(spark, config, "Municipios", MUNICIPIOS_COLUMNS)
+        establishments_es = establishments_raw.filter(F.col("uf") == config.state).persist()
+        cnpj_basicos_es = establishments_es.select("cnpj_basico").distinct().persist()
+        municipios_es = establishments_es.select("municipio").distinct().persist()
+
+        datasets: list[tuple[str, DataFrame]] = [
+            ("estabelecimentos", establishments_es),
             (
-                "estabelecimentos",
-                lambda: _read_extracted_csv_dataset(spark, config, "Estabelecimentos", ESTABELECIMENTOS_COLUMNS),
+                "empresas",
+                _read_extracted_csv_dataset(spark, config, "Empresas", EMPRESAS_COLUMNS).join(
+                    cnpj_basicos_es, on="cnpj_basico", how="semi"
+                ),
             ),
-            ("simples", lambda: _read_extracted_csv_dataset(spark, config, "Simples", SIMPLES_COLUMNS)),
-            ("cnaes", lambda: _read_extracted_csv_dataset(spark, config, "Cnaes", LOOKUP_COLUMNS)),
-            ("naturezas", lambda: _read_extracted_csv_dataset(spark, config, "Naturezas", LOOKUP_COLUMNS)),
-            ("municipios", lambda: _read_extracted_csv_dataset(spark, config, "Municipios", MUNICIPIOS_COLUMNS)),
-            ("jucees", lambda: _read_jucees_raw_csv(spark, config)),
+            (
+                "simples",
+                _read_extracted_csv_dataset(spark, config, "Simples", SIMPLES_COLUMNS).join(
+                    cnpj_basicos_es, on="cnpj_basico", how="semi"
+                ),
+            ),
+            ("cnaes", _read_extracted_csv_dataset(spark, config, "Cnaes", LOOKUP_COLUMNS)),
+            ("naturezas", _read_extracted_csv_dataset(spark, config, "Naturezas", LOOKUP_COLUMNS)),
+            (
+                "municipios",
+                municipios_raw.join(municipios_es, municipios_raw["codigo"] == municipios_es["municipio"], how="semi"),
+            ),
+            ("jucees", _read_jucees_raw_csv(spark, config)),
         ]
         if config.include_socios:
-            dataset_builders.append(
-                ("socios", lambda: _read_extracted_csv_dataset(spark, config, "Socios", SOCIOS_COLUMNS))
+            datasets.append(
+                (
+                    "socios",
+                    _read_extracted_csv_dataset(spark, config, "Socios", SOCIOS_COLUMNS).join(
+                        cnpj_basicos_es, on="cnpj_basico", how="semi"
+                    ),
+                )
             )
 
-        for dataset_name, builder in dataset_builders:
+        for dataset_name, dataset_df in datasets:
             if _has_parquet_dataset(config, dataset_name):
                 LOGGER.info("Parquet ja existe, pulando materializacao: %s", dataset_name)
                 continue
             parquet_path = _parquet_dataset_path(config, dataset_name)
-            LOGGER.info("Materializando parquet: %s", parquet_path)
-            _write_parquet(builder(), parquet_path)
+            _materialize_dataset(dataset_name, dataset_df, parquet_path)
+
+        establishments_es.unpersist()
+        cnpj_basicos_es.unpersist()
+        municipios_es.unpersist()
+        LOGGER.info("Materializacao parquet finalizada com sucesso.")
     finally:
         spark.stop()
 
